@@ -10,6 +10,7 @@ from act_model import ActivityModel
 from torch.utils.data import DataLoader, Dataset
 from argparse import RawDescriptionHelpFormatter
 import argparse
+import os
 
 class EnzymeDatasets(Dataset):
     def __init__(self, values):
@@ -59,9 +60,9 @@ def inference(kcat_model, Km_model, act_model, dataloader, device="cuda:0"):
 if __name__ == "__main__":
     d = "RUN CATAPRO ..."
     parser = argparse.ArgumentParser(description=d, formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument("-inp_fpath", type=str, default="enzyme.fasta",
+    parser.add_argument("-inp_fpath", type=str, default="sample_inp.csv",
                          help="Input (.fasta). The path of enzyme file.")
-    parser.add_argument("-model_dpath", type=str, default="model_dpah",
+    parser.add_argument("-model_dpath", type=str, default="../models",
                          help="Input. The path of saved models.")
     parser.add_argument("-batch_size", type=int, default=64,
                         help="Input. Batch size")
@@ -76,7 +77,6 @@ if __name__ == "__main__":
     batch_size = args.batch_size 
     device = args.device
     out_fpath = args.out_fpath
-    
     kcat_model_dpath = f"{model_dpath}/kcat_models"
     Km_model_dpath = f"{model_dpath}/Km_models"
     act_model_dpath = f"{model_dpath}/act_models"
