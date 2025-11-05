@@ -383,17 +383,25 @@ class SequenceComparisonAnalyzer:
                         effect_size = np.nan
 
                     # Calculate sequence identity for best and worst AA groups
-                    # Need to get aligned sequences from original substrate_data
+                    # IMPORTANT: Use only UNIQUE sequences for this substrate
+                    # (same sequence appears for each substrate, but we want identity within unique sequences)
                     best_fasta_ids = substrate_data[substrate_data[pos_col] == best_aa]['fasta_id'].tolist()
                     worst_fasta_ids = substrate_data[substrate_data[pos_col] == worst_aa]['fasta_id'].tolist()
 
                     # Get aligned sequences from original data
                     substrate_original = self.substrate_data[substrate]
-                    best_sequences = substrate_original[substrate_original['fasta_id'].isin(best_fasta_ids)]['aligned_seq'].tolist()
-                    worst_sequences = substrate_original[substrate_original['fasta_id'].isin(worst_fasta_ids)]['aligned_seq'].tolist()
 
+                    # Get UNIQUE sequences only (drop duplicates by fasta_id for this substrate)
+                    best_sequences = substrate_original[substrate_original['fasta_id'].isin(best_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
+                    worst_sequences = substrate_original[substrate_original['fasta_id'].isin(worst_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
+
+                    # Calculate identity only among unique sequences
                     best_identity = calculate_average_pairwise_identity(best_sequences)
                     worst_identity = calculate_average_pairwise_identity(worst_sequences)
+
+                    # Store actual unique sequence counts (may differ from best_count/worst_count which counts rows)
+                    best_unique_count = len(best_sequences)
+                    worst_unique_count = len(worst_sequences)
 
                     result = {
                         'position': pos + 1,
@@ -407,6 +415,7 @@ class SequenceComparisonAnalyzer:
                         'best_mean': aa_means[best_aa],
                         'best_std': aa_stds[best_aa],
                         'best_count': aa_counts_dict[best_aa],
+                        'best_unique_seqs': best_unique_count,  # Actual unique sequences
                         'best_seq_identity_mean': best_identity['mean_identity'],
                         'best_seq_identity_min': best_identity['min_identity'],
                         'best_seq_identity_max': best_identity['max_identity'],
@@ -414,6 +423,7 @@ class SequenceComparisonAnalyzer:
                         'worst_mean': aa_means[worst_aa],
                         'worst_std': aa_stds[worst_aa],
                         'worst_count': aa_counts_dict[worst_aa],
+                        'worst_unique_seqs': worst_unique_count,  # Actual unique sequences
                         'worst_seq_identity_mean': worst_identity['mean_identity'],
                         'worst_seq_identity_min': worst_identity['min_identity'],
                         'worst_seq_identity_max': worst_identity['max_identity'],

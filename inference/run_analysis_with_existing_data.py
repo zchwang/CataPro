@@ -255,9 +255,9 @@ def main():
         if len(nadplus_kcat_km) > 0:
             for i, (_, row) in enumerate(nadplus_kcat_km.iterrows(), 1):
                 print(f"\n{i}. Position {row['position']} ({row['label']}):")
-                print(f"   최고: {row['best_aa']} (평균={row['best_mean']:.3f}, n={row['best_count']})")
+                print(f"   최고: {row['best_aa']} (평균={row['best_mean']:.3f}, n={row['best_count']}, unique_seqs={row['best_unique_seqs']})")
                 print(f"        서열 다양성: {row['best_seq_identity_mean']:.1f}% identity (range: {row['best_seq_identity_min']:.1f}-{row['best_seq_identity_max']:.1f}%)")
-                print(f"   최저: {row['worst_aa']} (평균={row['worst_mean']:.3f}, n={row['worst_count']})")
+                print(f"   최저: {row['worst_aa']} (평균={row['worst_mean']:.3f}, n={row['worst_count']}, unique_seqs={row['worst_unique_seqs']})")
                 print(f"        서열 다양성: {row['worst_seq_identity_mean']:.1f}% identity (range: {row['worst_seq_identity_min']:.1f}-{row['worst_seq_identity_max']:.1f}%)")
                 print(f"   차이: {row['delta']:.3f} (p={row['p_value']:.4f})")
         else:
