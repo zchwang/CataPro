@@ -16,6 +16,38 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+def create_pdb_to_alignment_mapping(reference_aligned_seq):
+    """
+    Create mapping from PDB residue numbers to alignment positions
+
+    PDB structure uses sequential residue numbering (1, 2, 3, ...)
+    But in MSA, the reference sequence may have gaps, so position != residue number
+
+    Parameters:
+    -----------
+    reference_aligned_seq : str
+        Aligned reference sequence with gaps
+
+    Returns:
+    --------
+    dict : {pdb_residue_number: alignment_position}
+
+    Example:
+    --------
+    ref_seq = "---MA-TG"  # alignment length = 8
+    mapping = {1: 3, 2: 4, 3: 6, 4: 7}  # M=pos3, A=pos4, T=pos6, G=pos7
+    """
+    pdb_to_aln = {}
+    pdb_residue = 1
+
+    for aln_pos, char in enumerate(reference_aligned_seq):
+        if char != '-':  # Skip gaps
+            pdb_to_aln[pdb_residue] = aln_pos
+            pdb_residue += 1
+
+    return pdb_to_aln
+
+
 def calculate_sequence_identity(seq1, seq2):
     """
     Calculate pairwise sequence identity between two aligned sequences
@@ -113,7 +145,7 @@ class SequenceComparisonAnalyzer:
         Parameters:
         -----------
         binding_site_positions : list or dict
-            Binding site positions (0-indexed)
+            Binding site positions (0-indexed PDB residue numbers)
         window_size : int
             Window around each position (1-3)
         """
@@ -126,6 +158,33 @@ class SequenceComparisonAnalyzer:
         self.positions_with_window = self._expand_positions()
         self.substrates = []
         self.results = {}
+        self.pdb_to_aln = None  # Will be set after loading data
+
+    def set_reference_sequence(self, reference_aligned_seq):
+        """
+        Create PDB to alignment position mapping from reference sequence
+
+        Parameters:
+        -----------
+        reference_aligned_seq : str
+            Aligned reference sequence with gaps (from alignment file)
+        """
+        print("\nCreating PDB → Alignment position mapping...")
+        self.pdb_to_aln = create_pdb_to_alignment_mapping(reference_aligned_seq)
+
+        # Show some key mappings for verification
+        print(f"  Total PDB residues: {len(self.pdb_to_aln)}")
+        print(f"  Alignment length: {len(reference_aligned_seq)}")
+
+        # Check key positions
+        test_positions = [1, 87, 110, 136, 159, 181]
+        for pdb_pos in test_positions:
+            if pdb_pos in self.pdb_to_aln:
+                aln_pos = self.pdb_to_aln[pdb_pos]
+                aa = reference_aligned_seq[aln_pos] if aln_pos < len(reference_aligned_seq) else '?'
+                print(f"  PDB residue {pdb_pos:3d} → Alignment position {aln_pos:3d} ({aa})")
+
+        return self.pdb_to_aln
 
     def _expand_positions(self):
         """Expand binding site positions to include window"""
@@ -213,6 +272,9 @@ class SequenceComparisonAnalyzer:
         - amino acids at each position
         - kinetic parameters
         """
+        if self.pdb_to_aln is None:
+            raise ValueError("Must call set_reference_sequence() before extract_position_data()")
+
         # First pass: count gaps at each position to filter out insertion-heavy positions
         print(f"\nFiltering positions by coverage (min_coverage={min_coverage})...")
 
@@ -223,15 +285,30 @@ class SequenceComparisonAnalyzer:
         positions_removed = []
 
         for pos, info in sorted(self.positions_with_window.items()):
+            # pos is 0-indexed PDB position, need to convert to 1-indexed for mapping
+            pdb_residue = pos + 1
+
+            if pdb_residue not in self.pdb_to_aln:
+                positions_removed.append({
+                    'position': pdb_residue,
+                    'label': info['label'],
+                    'coverage': 0.0,
+                    'gap_count': 'N/A',
+                    'total_count': 'N/A',
+                    'reason': 'PDB position not in reference sequence'
+                })
+                continue
+
+            aln_pos = self.pdb_to_aln[pdb_residue]
             gap_count = 0
             total_count = 0
 
             for df in self.substrate_data.values():
                 for idx, row in df.iterrows():
                     seq = row[aligned_seq_col]
-                    if pos >= 0 and pos < len(seq):
+                    if aln_pos >= 0 and aln_pos < len(seq):
                         total_count += 1
-                        if seq[pos] == '-':
+                        if seq[aln_pos] == '-':
                             gap_count += 1
 
             if total_count > 0:
@@ -240,7 +317,7 @@ class SequenceComparisonAnalyzer:
                     positions_to_keep[pos] = info
                 else:
                     positions_removed.append({
-                        'position': pos + 1,
+                        'position': pdb_residue,
                         'label': info['label'],
                         'coverage': coverage,
                         'gap_count': gap_count,
@@ -250,8 +327,11 @@ class SequenceComparisonAnalyzer:
         if positions_removed:
             print(f"\nRemoved {len(positions_removed)} positions with low coverage:")
             for p in positions_removed:
-                print(f"  Pos {p['position']} ({p['label']}): {p['coverage']*100:.1f}% coverage "
-                      f"({p['gap_count']}/{p['total_count']} gaps)")
+                if 'reason' in p:
+                    print(f"  PDB {p['position']} ({p['label']}): {p['reason']}")
+                else:
+                    print(f"  PDB {p['position']} ({p['label']}): {p['coverage']*100:.1f}% coverage "
+                          f"({p['gap_count']}/{p['total_count']} gaps)")
 
         print(f"\nKeeping {len(positions_to_keep)} positions with coverage >= {min_coverage*100:.0f}%")
 
@@ -276,8 +356,12 @@ class SequenceComparisonAnalyzer:
 
                 # Extract amino acids at binding site positions (only filtered ones)
                 for pos, info in sorted(self.positions_with_window.items()):
-                    if pos >= 0 and pos < len(seq):
-                        aa = seq[pos]
+                    # pos is 0-indexed PDB position, convert to alignment position
+                    pdb_residue = pos + 1
+                    aln_pos = self.pdb_to_aln[pdb_residue]
+
+                    if aln_pos >= 0 and aln_pos < len(seq):
+                        aa = seq[aln_pos]
                         if aa != '-':
                             seq_data[f'pos_{pos+1}'] = aa
                             seq_data[f'pos_{pos+1}_site'] = info['site']
@@ -367,41 +451,57 @@ class SequenceComparisonAnalyzer:
                     if len(aa_means) < 2:
                         continue
 
-                    # Find best and worst amino acids
+                    # Find best amino acid
                     best_aa = max(aa_means, key=aa_means.get)
-                    worst_aa = min(aa_means, key=aa_means.get)
-
-                    # Statistical test between best and worst
                     best_data = substrate_data[substrate_data[pos_col] == best_aa][param].dropna()
+
+                    # Get substrate original data for identity calculations
+                    substrate_original = self.substrate_data[substrate]
+
+                    # Calculate best AA identity
+                    best_fasta_ids = substrate_data[substrate_data[pos_col] == best_aa]['fasta_id'].tolist()
+                    best_sequences = substrate_original[substrate_original['fasta_id'].isin(best_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
+                    best_identity = calculate_average_pairwise_identity(best_sequences)
+                    best_unique_count = len(best_sequences)
+
+                    # Compare BEST AA with ALL OTHER AAs (not just worst)
+                    # Store pairwise comparisons
+                    aa_pairwise_pvalues = {}
+
+                    for other_aa in valid_aas:
+                        if other_aa == best_aa:
+                            aa_pairwise_pvalues[other_aa] = 0.0  # Best vs itself
+                            continue
+
+                        other_data = substrate_data[substrate_data[pos_col] == other_aa][param].dropna()
+
+                        if len(best_data) >= min_sequences and len(other_data) >= min_sequences:
+                            try:
+                                stat, pval = stats.mannwhitneyu(best_data, other_data, alternative='two-sided')
+                                # Convert numpy types to Python types for JSON serialization
+                                aa_pairwise_pvalues[other_aa] = float(pval) if not np.isnan(pval) else None
+                            except:
+                                aa_pairwise_pvalues[other_aa] = None
+                        else:
+                            aa_pairwise_pvalues[other_aa] = None
+
+                    # Find worst amino acid for legacy compatibility
+                    worst_aa = min(aa_means, key=aa_means.get)
                     worst_data = substrate_data[substrate_data[pos_col] == worst_aa][param].dropna()
 
+                    # Calculate worst AA identity
+                    worst_fasta_ids = substrate_data[substrate_data[pos_col] == worst_aa]['fasta_id'].tolist()
+                    worst_sequences = substrate_original[substrate_original['fasta_id'].isin(worst_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
+                    worst_identity = calculate_average_pairwise_identity(worst_sequences)
+                    worst_unique_count = len(worst_sequences)
+
+                    # Statistical test between best and worst (for backward compatibility)
                     if len(best_data) >= min_sequences and len(worst_data) >= min_sequences:
                         stat, pval = stats.mannwhitneyu(best_data, worst_data, alternative='two-sided')
                         effect_size = (best_data.mean() - worst_data.mean()) / substrate_data[param].std()
                     else:
                         pval = np.nan
                         effect_size = np.nan
-
-                    # Calculate sequence identity for best and worst AA groups
-                    # IMPORTANT: Use only UNIQUE sequences for this substrate
-                    # (same sequence appears for each substrate, but we want identity within unique sequences)
-                    best_fasta_ids = substrate_data[substrate_data[pos_col] == best_aa]['fasta_id'].tolist()
-                    worst_fasta_ids = substrate_data[substrate_data[pos_col] == worst_aa]['fasta_id'].tolist()
-
-                    # Get aligned sequences from original data
-                    substrate_original = self.substrate_data[substrate]
-
-                    # Get UNIQUE sequences only (drop duplicates by fasta_id for this substrate)
-                    best_sequences = substrate_original[substrate_original['fasta_id'].isin(best_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
-                    worst_sequences = substrate_original[substrate_original['fasta_id'].isin(worst_fasta_ids)].drop_duplicates(subset='fasta_id')['aligned_seq'].tolist()
-
-                    # Calculate identity only among unique sequences
-                    best_identity = calculate_average_pairwise_identity(best_sequences)
-                    worst_identity = calculate_average_pairwise_identity(worst_sequences)
-
-                    # Store actual unique sequence counts (may differ from best_count/worst_count which counts rows)
-                    best_unique_count = len(best_sequences)
-                    worst_unique_count = len(worst_sequences)
 
                     result = {
                         'position': pos + 1,
@@ -415,7 +515,7 @@ class SequenceComparisonAnalyzer:
                         'best_mean': aa_means[best_aa],
                         'best_std': aa_stds[best_aa],
                         'best_count': aa_counts_dict[best_aa],
-                        'best_unique_seqs': best_unique_count,  # Actual unique sequences
+                        'best_unique_seqs': best_unique_count,
                         'best_seq_identity_mean': best_identity['mean_identity'],
                         'best_seq_identity_min': best_identity['min_identity'],
                         'best_seq_identity_max': best_identity['max_identity'],
@@ -423,7 +523,7 @@ class SequenceComparisonAnalyzer:
                         'worst_mean': aa_means[worst_aa],
                         'worst_std': aa_stds[worst_aa],
                         'worst_count': aa_counts_dict[worst_aa],
-                        'worst_unique_seqs': worst_unique_count,  # Actual unique sequences
+                        'worst_unique_seqs': worst_unique_count,
                         'worst_seq_identity_mean': worst_identity['mean_identity'],
                         'worst_seq_identity_min': worst_identity['min_identity'],
                         'worst_seq_identity_max': worst_identity['max_identity'],
@@ -432,7 +532,8 @@ class SequenceComparisonAnalyzer:
                         'p_value': pval,
                         'significant': pval < 0.05 if not np.isnan(pval) else False,
                         'all_aa_means': str(aa_means),
-                        'all_aa_counts': str(aa_counts_dict)
+                        'all_aa_counts': str(aa_counts_dict),
+                        'all_aa_pvalues_vs_best': str(aa_pairwise_pvalues)  # NEW: p-values for all AAs vs Best
                     }
 
                     results.append(result)
@@ -511,6 +612,134 @@ class SequenceComparisonAnalyzer:
         self.substrate_specific = pd.DataFrame(substrate_specific)
         print(f"Found {len(self.substrate_specific)} substrate-specific positions")
         return self.substrate_specific
+
+    def generate_excel_report(self, output_dir='./'):
+        """
+        Generate comprehensive Excel report with active site residues for each sequence
+
+        Returns:
+        --------
+        str : Path to saved Excel file
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_file = os.path.join(output_dir, f"active_site_residues_{timestamp}.xlsx")
+
+        print("\nGenerating Excel report...")
+
+        # Create Excel writer
+        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+
+            # Sheet 1: Sequence Active Site Residues
+            print("  Creating Sheet 1: Sequence Active Site Residues...")
+
+            # Prepare data with position labels in header
+            sequence_data = []
+
+            for substrate in self.substrates:
+                substrate_df = self.substrate_data[substrate]
+                unique_df = substrate_df.drop_duplicates(subset='fasta_id')
+
+                for idx, row in unique_df.iterrows():
+                    seq_record = {
+                        'fasta_id': row['fasta_id'],
+                        'substrate': substrate,
+                    }
+
+                    # Add amino acids at each active site position
+                    for pos, info in sorted(self.positions_with_window.items()):
+                        pdb_residue = pos + 1
+                        if pdb_residue in self.pdb_to_aln:
+                            aln_pos = self.pdb_to_aln[pdb_residue]
+                            seq = row['aligned_seq']
+                            if aln_pos < len(seq):
+                                aa = seq[aln_pos]
+                                # Column name: "P12 (NAD_binding_1_core)"
+                                col_name = f"P{pdb_residue} ({info['label']})"
+                                seq_record[col_name] = aa if aa != '-' else None
+
+                    # Add kinetic parameters
+                    if 'pred_log10[kcat(s^-1)]' in substrate_df.columns:
+                        seq_record['log_kcat'] = row['pred_log10[kcat(s^-1)]']
+                    if 'pred_log10[Km(mM)]' in substrate_df.columns:
+                        seq_record['log_Km'] = row['pred_log10[Km(mM)]']
+                    if 'pred_log10[kcat/Km(s^-1mM^-1)]' in substrate_df.columns:
+                        seq_record['log_kcat_Km'] = row['pred_log10[kcat/Km(s^-1mM^-1)]']
+
+                    sequence_data.append(seq_record)
+
+            sequence_df = pd.DataFrame(sequence_data)
+            sequence_df.to_excel(writer, sheet_name='Active_Site_Residues', index=False)
+
+            # Sheet 2: Position Information with Best/Worst per substrate
+            print("  Creating Sheet 2: Position Information...")
+
+            position_info_data = []
+            for pos, info in sorted(self.positions_with_window.items()):
+                pdb_residue = pos + 1
+
+                base_info = {
+                    'position': pdb_residue,
+                    'label': info['label'],
+                    'site': info['site'],
+                    'window': info['window'],
+                }
+
+                # Add Best/Worst AA for each substrate from aa_effects
+                if hasattr(self, 'aa_effects') and self.aa_effects is not None:
+                    for substrate in self.substrates:
+                        pos_effects = self.aa_effects[
+                            (self.aa_effects['position'] == pdb_residue) &
+                            (self.aa_effects['substrate'] == substrate) &
+                            (self.aa_effects['parameter'] == 'log_kcat_Km')
+                        ]
+
+                        # Get significant effects first
+                        pos_effects_sig = pos_effects[pos_effects['significant']]
+                        if len(pos_effects_sig) > 0:
+                            row = pos_effects_sig.iloc[0]
+                        elif len(pos_effects) > 0:
+                            row = pos_effects.iloc[0]
+                        else:
+                            continue
+
+                        base_info[f'{substrate}_best_AA'] = row['best_aa']
+                        base_info[f'{substrate}_best_mean'] = round(row['best_mean'], 3)
+                        base_info[f'{substrate}_worst_AA'] = row['worst_aa']
+                        base_info[f'{substrate}_worst_mean'] = round(row['worst_mean'], 3)
+                        base_info[f'{substrate}_delta'] = round(row['delta'], 3)
+                        base_info[f'{substrate}_p_value'] = row['p_value']
+                        base_info[f'{substrate}_significant'] = row['significant']
+
+                position_info_data.append(base_info)
+
+            position_info_df = pd.DataFrame(position_info_data)
+            position_info_df.to_excel(writer, sheet_name='Position_Information', index=False)
+
+            # Sheet 3: Amino Acid Effects (full data)
+            print("  Creating Sheet 3: Amino Acid Effects...")
+            if hasattr(self, 'aa_effects') and self.aa_effects is not None:
+                # Select relevant columns (check which columns actually exist)
+                available_cols = ['position', 'label', 'site', 'substrate', 'parameter',
+                                 'best_aa', 'best_mean', 'best_unique_seqs',
+                                 'worst_aa', 'worst_mean', 'worst_unique_seqs',
+                                 'delta', 'p_value', 'significant']
+
+                # Only select columns that exist
+                cols_to_export = [col for col in available_cols if col in self.aa_effects.columns]
+                aa_effects_export = self.aa_effects[cols_to_export].copy()
+                aa_effects_export.to_excel(writer, sheet_name='AA_Effects', index=False)
+
+            # Sheet 4: Substrate-Specific Residues
+            print("  Creating Sheet 4: Substrate-Specific Residues...")
+            if hasattr(self, 'substrate_specific') and len(self.substrate_specific) > 0:
+                substrate_specific_export = self.substrate_specific[[
+                    'position', 'label', 'site', 'window', 'parameter',
+                    'n_substrates', 'n_different_preferences', 'max_delta'
+                ]].copy()
+                substrate_specific_export.to_excel(writer, sheet_name='Substrate_Specific', index=False)
+
+        print(f"\nExcel report saved: {excel_file}")
+        return excel_file
 
     def generate_report(self, output_dir='./'):
         """Generate comprehensive report"""
@@ -630,49 +859,200 @@ class SequenceComparisonAnalyzer:
             filepath = os.path.join(output_dir, filename)
             plt.savefig(filepath, dpi=300, bbox_inches='tight')
             print(f"Saved: {filename}")
+
+            # Display image
+            try:
+                import subprocess
+                # subprocess.Popen(['start', filepath], shell=True)
+            except:
+                pass
+
             plt.close()
 
-        # Plot 2: Substrate comparison for top positions
+        # Plot 2: Separate plots for EACH substrate showing Best vs Worst side-by-side with data points
         param = 'log_kcat_Km'
         if param in self.aa_effects['parameter'].unique():
             param_data = self.aa_effects[self.aa_effects['parameter'] == param]
-            top_positions = param_data.groupby('position')['delta'].mean().nlargest(10).index
 
-            fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-            fig.suptitle(f'Top 10 Positions: Substrate Comparison ({param})',
-                        fontsize=16, fontweight='bold')
+            # Create separate figure for each substrate
+            for substrate in self.substrates:
+                substrate_data_sig = param_data[
+                    (param_data['substrate'] == substrate) &
+                    (param_data['significant'])
+                ].sort_values('delta', ascending=False)
 
-            for idx, pos in enumerate(top_positions):
-                ax = axes[idx // 5, idx % 5]
+                substrate_data_insig = param_data[
+                    (param_data['substrate'] == substrate) &
+                    (~param_data['significant'])
+                ].sort_values('delta', ascending=False)
 
-                pos_data = param_data[param_data['position'] == pos]
+                if len(substrate_data_sig) == 0 and len(substrate_data_insig) == 0:
+                    continue
 
-                x = range(len(pos_data))
-                colors = plt.cm.Set3(range(len(pos_data)))
+                # Sort by delta (effect size) - significant first, then insignificant
+                all_data = pd.concat([substrate_data_sig, substrate_data_insig])
 
-                bars = ax.bar(x, pos_data['delta'], color=colors, edgecolor='black')
-                ax.set_xticks(x)
-                ax.set_xticklabels(pos_data['substrate'], rotation=45, ha='right', fontsize=8)
-                ax.set_ylabel('Effect Size')
-                ax.set_title(f'Position {pos}', fontweight='bold')
-                ax.grid(True, alpha=0.3, axis='y')
+                # Get actual data
+                substrate_combined = self.combined_data[self.combined_data['substrate'] == substrate]
 
-                # Add amino acid labels
-                for i, (_, row) in enumerate(pos_data.iterrows()):
-                    ax.text(i, row['delta']/2, f"{row['best_aa']}",
-                           ha='center', va='center', fontweight='bold', fontsize=10)
+                # Adjust figure size based on number of positions
+                n_positions = len(all_data)
+                fig_width = max(16, n_positions * 1.2)
+                fig, ax = plt.subplots(figsize=(fig_width, 10))
+                fig.suptitle(f'{substrate} - log(kcat/Km) Distribution: Best vs Worst\n' +
+                            f'Green: Significant (p<0.05) | Gray: Not Significant (p≥0.05)',
+                            fontsize=13, fontweight='bold')
 
-            plt.tight_layout()
-            filename = f"substrate_comparison_top_positions_{timestamp}.png"
-            filepath = os.path.join(output_dir, filename)
-            plt.savefig(filepath, dpi=300, bbox_inches='tight')
-            print(f"Saved: {filename}")
-            plt.close()
+                # Collect data for violin plots - Best and Worst side by side
+                best_violin_data = []
+                worst_violin_data = []
+                x_positions_best = []
+                x_positions_worst = []
+                colors = []
+                labels = []
+
+                # Store data points for scatter
+                best_scatter_data = []
+                worst_scatter_data = []
+
+                plot_idx = 0
+                for idx, (_, row) in enumerate(all_data.iterrows()):
+                    pos_col = f'pos_{row["position"]}'
+
+                    if pos_col not in substrate_combined.columns:
+                        continue
+
+                    # Get actual log(kcat/Km) data for best and worst AA
+                    best_data = substrate_combined[substrate_combined[pos_col] == row['best_aa']]['log_kcat_Km'].values
+                    worst_data = substrate_combined[substrate_combined[pos_col] == row['worst_aa']]['log_kcat_Km'].values
+
+                    if len(best_data) > 1 and len(worst_data) > 1:
+                        # Position: Best on left, Worst on right (with gap)
+                        x_best = plot_idx * 3
+                        x_worst = plot_idx * 3 + 1
+
+                        best_violin_data.append(best_data)
+                        worst_violin_data.append(worst_data)
+                        x_positions_best.append(x_best)
+                        x_positions_worst.append(x_worst)
+                        colors.append('green' if row['significant'] else 'lightgray')
+
+                        # Store for scatter plot
+                        best_scatter_data.append((x_best, best_data))
+                        worst_scatter_data.append((x_worst, worst_data))
+
+                        label = (f"P{row['position']}\n"
+                                f"{row['best_aa']}({row['best_mean']:.2f})\n"
+                                f"vs\n"
+                                f"{row['worst_aa']}({row['worst_mean']:.2f})")
+                        labels.append(label)
+                        plot_idx += 1
+
+                # Create violin plots for Best and Worst
+                if len(best_violin_data) > 0:
+                    # Plot Best violins
+                    parts_best = ax.violinplot(best_violin_data, positions=x_positions_best, widths=0.8,
+                                              showmeans=True, showmedians=True, showextrema=True)
+
+                    # Plot Worst violins
+                    parts_worst = ax.violinplot(worst_violin_data, positions=x_positions_worst, widths=0.8,
+                                               showmeans=True, showmedians=True, showextrema=True)
+
+                    # Color Best violins (darker shade)
+                    for i, pc in enumerate(parts_best['bodies']):
+                        if colors[i] == 'green':
+                            pc.set_facecolor('darkgreen')
+                        else:
+                            pc.set_facecolor('gray')
+                        pc.set_alpha(0.5)
+                        pc.set_edgecolor('black')
+                        pc.set_linewidth(1)
+
+                    # Color Worst violins (lighter shade)
+                    for i, pc in enumerate(parts_worst['bodies']):
+                        if colors[i] == 'green':
+                            pc.set_facecolor('lightgreen')
+                        else:
+                            pc.set_facecolor('lightgray')
+                        pc.set_alpha(0.5)
+                        pc.set_edgecolor('black')
+                        pc.set_linewidth(1)
+
+                    # Style means and medians for both
+                    for parts in [parts_best, parts_worst]:
+                        parts['cmeans'].set_color('red')
+                        parts['cmeans'].set_linewidth(2)
+                        parts['cmedians'].set_color('blue')
+                        parts['cmedians'].set_linewidth(2)
+                        parts['cbars'].set_color('black')
+                        parts['cbars'].set_linewidth(1)
+                        parts['cmaxes'].set_color('black')
+                        parts['cmins'].set_color('black')
+
+                    # Add data points as scatter (with jitter)
+                    np.random.seed(42)
+                    for x_pos, data in best_scatter_data:
+                        # Add jitter to x position
+                        jitter = np.random.normal(0, 0.05, size=len(data))
+                        ax.scatter(x_pos + jitter, data, alpha=0.3, s=20, color='darkblue', zorder=3)
+
+                    for x_pos, data in worst_scatter_data:
+                        jitter = np.random.normal(0, 0.05, size=len(data))
+                        ax.scatter(x_pos + jitter, data, alpha=0.3, s=20, color='darkred', zorder=3)
+
+                    # Labels and formatting
+                    # Set x-ticks at the midpoint between Best and Worst
+                    x_ticks = [(x_positions_best[i] + x_positions_worst[i]) / 2 for i in range(len(x_positions_best))]
+                    ax.set_xticks(x_ticks)
+                    ax.set_xticklabels(labels, rotation=90, ha='center', fontsize=7)
+                    ax.set_ylabel('log(kcat/Km)', fontsize=12)
+                    ax.set_xlabel('Position (sorted by Δ)\nDark=Best, Light=Worst', fontsize=12)
+                    ax.set_title('Red=mean, Blue=median | Blue dots=Best, Red dots=Worst', fontsize=10)
+                    ax.grid(True, alpha=0.3, axis='y')
+
+                    # Add delta and p-values above each pair
+                    for i, (_, row) in enumerate(all_data.iterrows()):
+                        if i < len(x_ticks):
+                            y_max = max(np.max(best_violin_data[i]), np.max(worst_violin_data[i]))
+
+                            if row['significant']:
+                                ax.text(x_ticks[i], y_max * 1.02, f"Δ={row['delta']:.3f}\np={row['p_value']:.4f}",
+                                       ha='center', va='bottom', fontsize=6, color='darkred',
+                                       fontweight='bold')
+                            else:
+                                ax.text(x_ticks[i], y_max * 1.02, f"Δ={row['delta']:.3f}\np={row['p_value']:.3f}",
+                                       ha='center', va='bottom', fontsize=5, color='gray',
+                                       style='italic')
+
+                    # Add separation line between significant and insignificant
+                    if len(substrate_data_sig) > 0 and len(substrate_data_insig) > 0:
+                        sep_idx = len(substrate_data_sig) - 1
+                        if sep_idx < len(x_ticks) - 1:
+                            sep_x = x_ticks[sep_idx] + 1.5  # Between positions
+                            ax.axvline(x=sep_x, color='red', linestyle='--', linewidth=2, alpha=0.5)
+                            ax.text(sep_x, ax.get_ylim()[1] * 0.5, 'Significant | Insignificant',
+                                   rotation=90, va='center', ha='right', fontsize=9, color='red',
+                                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+                plt.tight_layout()
+                filename = f"{substrate}_all_positions_{timestamp}.png"
+                filepath = os.path.join(output_dir, filename)
+                plt.savefig(filepath, dpi=300, bbox_inches='tight')
+                print(f"Saved: {filename}")
+
+                # Display image
+                try:
+                    import subprocess
+                    # subprocess.Popen(['start', filepath], shell=True)
+                except:
+                    pass
+
+                plt.close()
 
     def plot_sample_sizes_by_position(self, output_dir='./'):
         """
         Plot amino acid sample size (n) distribution for each position
-        Shows which amino acids are present and how many sequences have each AA
+        FOR EACH SUBSTRATE separately with substrate-specific significance
         """
         if self.combined_data is None:
             print("No position data. Run extract_position_data() first.")
@@ -683,111 +1063,267 @@ class SequenceComparisonAnalyzer:
         # Get positions from position_info
         positions = sorted(self.position_info.keys())
 
-        # Create figure with subplots for each position
-        n_positions = len(positions)
-        n_cols = 5
-        n_rows = (n_positions + n_cols - 1) // n_cols
+        # Create SEPARATE figure for EACH substrate
+        for substrate in self.substrates:
+            n_positions = len(positions)
+            n_cols = 5
+            n_rows = (n_positions + n_cols - 1) // n_cols
 
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(25, 5*n_rows))
-        fig.suptitle('Amino Acid Sample Sizes by Position', fontsize=16, fontweight='bold')
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(25, 5*n_rows))
+            fig.suptitle(f'{substrate} - Amino Acid Sample Sizes by Position\n(Unique Sequences for this substrate)',
+                        fontsize=16, fontweight='bold')
 
-        if n_rows == 1:
-            axes = axes.reshape(1, -1)
+            if n_rows == 1:
+                axes = axes.reshape(1, -1)
 
-        for idx, pos in enumerate(positions):
-            row = idx // n_cols
-            col = idx % n_cols
-            ax = axes[row, col]
+            for idx, pos in enumerate(positions):
+                row = idx // n_cols
+                col = idx % n_cols
+                ax = axes[row, col]
 
-            pos_col = f'pos_{pos+1}'  # Column names are 1-indexed
-            info = self.position_info[pos]
+                pos_col = f'pos_{pos+1}'  # Column names are 1-indexed
+                info = self.position_info[pos]
 
-            # Count amino acids across all substrates at this position
-            if pos_col not in self.combined_data.columns:
-                ax.text(0.5, 0.5, 'No data', ha='center', va='center')
-                ax.set_title(f"Pos {pos+1}\n{info['label']}")
-                continue
+                # Count UNIQUE sequences FOR THIS SUBSTRATE ONLY
+                # Extract AA from aligned_seq at position pos (0-indexed)
+                unique_aa_counts = {}
+                substrate_df = self.substrate_data[substrate]
 
-            aa_counts_all = self.combined_data[pos_col].value_counts().sort_index()
+                # Get unique sequences for this substrate
+                unique_df = substrate_df.drop_duplicates(subset='fasta_id')
 
-            if len(aa_counts_all) == 0:
-                ax.text(0.5, 0.5, 'No data', ha='center', va='center')
-                ax.set_title(f"Pos {pos+1}\n{info['label']}")
-                continue
+                for idx, row in unique_df.iterrows():
+                    seq = row['aligned_seq']
+                    # pos is 0-indexed PDB position, need to convert to alignment position
+                    pdb_residue = pos + 1
+                    if pdb_residue in self.pdb_to_aln:
+                        aln_pos = self.pdb_to_aln[pdb_residue]
+                        if aln_pos < len(seq):
+                            aa = seq[aln_pos]
+                            if aa != '-':  # Skip gaps
+                                if aa not in unique_aa_counts:
+                                    unique_aa_counts[aa] = 0
+                                unique_aa_counts[aa] += 1
 
-            # Create bar plot
-            colors = ['red' if count == 1 else 'lightblue' if count < 5 else 'steelblue'
-                     for count in aa_counts_all.values]
+                if len(unique_aa_counts) == 0:
+                    ax.text(0.5, 0.5, 'No data', ha='center', va='center')
+                    ax.set_title(f"Pos {pos+1}\n{info['label']}")
+                    continue
 
-            bars = ax.bar(range(len(aa_counts_all)), aa_counts_all.values,
-                         color=colors, edgecolor='black', alpha=0.7)
+                # Sort by amino acid letter
+                aa_counts_series = pd.Series(unique_aa_counts).sort_index()
 
-            ax.set_xticks(range(len(aa_counts_all)))
-            ax.set_xticklabels(aa_counts_all.index, fontsize=8)
-            ax.set_ylabel('Count (n)', fontsize=9)
-            ax.set_title(f"Pos {pos+1}: {info['label']}\n({info['site']}, w={info['window']})",
-                        fontsize=9)
-            ax.grid(True, alpha=0.3, axis='y')
+                # Find Best AA and get p-values for THIS SUBSTRATE
+                best_aa = None
+                worst_aa = None
+                aa_pvalues = {}  # Store p-values for each AA vs Best
 
-            # Add value labels on bars
-            for i, (aa, count) in enumerate(aa_counts_all.items()):
-                if count > 0:
-                    ax.text(i, count + max(aa_counts_all.values)*0.02, str(count),
-                           ha='center', va='bottom', fontsize=7)
+                if hasattr(self, 'aa_effects') and self.aa_effects is not None:
+                    # Get effects for this position and THIS SUBSTRATE
+                    pos_effects = self.aa_effects[
+                        (self.aa_effects['position'] == pos+1) &
+                        (self.aa_effects['substrate'] == substrate) &
+                        (self.aa_effects['parameter'] == 'log_kcat_Km')
+                    ]
 
-            # Rotate x labels if too many
-            if len(aa_counts_all) > 10:
-                ax.tick_params(axis='x', rotation=45)
+                    # First try significant positions
+                    pos_effects_sig = pos_effects[pos_effects['significant']]
+                    if len(pos_effects_sig) > 0:
+                        pos_effects = pos_effects_sig
 
-        # Hide empty subplots
-        for idx in range(n_positions, n_rows * n_cols):
-            row = idx // n_cols
-            col = idx % n_cols
-            axes[row, col].axis('off')
+                    if len(pos_effects) > 0:
+                        # Take the first row
+                        best_aa = pos_effects.iloc[0]['best_aa']
+                        worst_aa = pos_effects.iloc[0]['worst_aa']
 
-        # Add legend
-        from matplotlib.patches import Patch
-        legend_elements = [
-            Patch(facecolor='red', edgecolor='black', alpha=0.7, label='n=1 (excluded)'),
-            Patch(facecolor='lightblue', edgecolor='black', alpha=0.7, label='n=2-4 (low)'),
-            Patch(facecolor='steelblue', edgecolor='black', alpha=0.7, label='n≥5 (usable)')
-        ]
-        fig.legend(handles=legend_elements, loc='upper right', fontsize=10)
+                        # Parse pairwise p-values
+                        if 'all_aa_pvalues_vs_best' in pos_effects.columns:
+                            import ast
+                            try:
+                                aa_pvalues = ast.literal_eval(pos_effects.iloc[0]['all_aa_pvalues_vs_best'])
+                            except Exception as e:
+                                aa_pvalues = {}
 
-        plt.tight_layout(rect=[0, 0, 1, 0.98])
-        filename = f"sample_sizes_by_position_{timestamp}.png"
-        filepath = os.path.join(output_dir, filename)
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
-        print(f"Saved: {filename}")
-        plt.close()
+                # Create bar plot with colors indicating Best/Worst
+                colors = []
 
-        # Also create a summary table
+                for aa, count in aa_counts_series.items():
+                    if aa == best_aa:
+                        colors.append('darkgreen')
+                    elif aa == worst_aa:
+                        colors.append('darkred')
+                    elif count == 1:
+                        colors.append('red')
+                    elif count < 5:
+                        colors.append('lightblue')
+                    else:
+                        colors.append('steelblue')
+
+                bars = ax.bar(range(len(aa_counts_series)), aa_counts_series.values,
+                             color=colors, edgecolor='black', alpha=0.7)
+
+                ax.set_xticks(range(len(aa_counts_series)))
+                ax.set_xticklabels(aa_counts_series.index, fontsize=8)
+                ax.set_ylabel('Unique Seqs', fontsize=9)
+
+                # Add Best/Worst to title if found
+                title = f"Pos {pos+1}: {info['label']}\n({info['site']}, w={info['window']})"
+                if best_aa and worst_aa:
+                    title += f"\nBest:{best_aa} Worst:{worst_aa}"
+                ax.set_title(title, fontsize=9)
+                ax.grid(True, alpha=0.3, axis='y')
+
+                # Add value labels on bars with p-value indicator
+                for i, (aa, count) in enumerate(aa_counts_series.items()):
+                    if count > 0:
+                        label_text = str(count)
+                        fontweight = 'normal'
+                        color = 'black'
+
+                        # Add significance indicator if this AA has a p-value vs Best
+                        if aa == best_aa:
+                            # Best AA - no label needed
+                            pass
+                        elif aa in aa_pvalues and aa_pvalues[aa] is not None:
+                            if aa_pvalues[aa] < 0.05:
+                                label_text += f"\n(p={aa_pvalues[aa]:.3f})"
+                                fontweight = 'bold'
+                                color = 'red'
+                            else:
+                                label_text += f"\n(ns)"
+                                fontweight = 'normal'
+                                color = 'gray'
+
+                        ax.text(i, count + max(aa_counts_series.values)*0.02, label_text,
+                               ha='center', va='bottom', fontsize=6, fontweight=fontweight, color=color)
+
+                # Rotate x labels if too many
+                if len(aa_counts_series) > 10:
+                    ax.tick_params(axis='x', rotation=45)
+
+            # Hide empty subplots
+            for idx in range(n_positions, n_rows * n_cols):
+                row = idx // n_cols
+                col = idx % n_cols
+                axes[row, col].axis('off')
+
+            # Add legend
+            from matplotlib.patches import Patch
+            import matplotlib.lines as mlines
+            legend_elements = [
+                Patch(facecolor='darkgreen', edgecolor='black', alpha=0.7, label='Best AA'),
+                Patch(facecolor='darkred', edgecolor='black', alpha=0.7, label='Worst AA'),
+                mlines.Line2D([], [], color='red', marker='None', linestyle='None',
+                             label='p<0.05 vs Best (red text)'),
+                mlines.Line2D([], [], color='gray', marker='None', linestyle='None',
+                             label='ns vs Best (gray text)'),
+                Patch(facecolor='red', edgecolor='black', alpha=0.7, label='n=1 (excluded)'),
+                Patch(facecolor='lightblue', edgecolor='black', alpha=0.7, label='n=2-4 (low)'),
+                Patch(facecolor='steelblue', edgecolor='black', alpha=0.7, label='n>=5 (usable)')
+            ]
+            fig.legend(handles=legend_elements, loc='upper right', fontsize=9)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.98])
+            filename = f"{substrate}_sample_sizes_by_position_{timestamp}.png"
+            filepath = os.path.join(output_dir, filename)
+            plt.savefig(filepath, dpi=300, bbox_inches='tight')
+            print(f"Saved: {filename}")
+
+            # Display image
+            try:
+                import subprocess
+                # subprocess.Popen(['start', filepath], shell=True)
+            except:
+                pass
+
+            plt.close()
+
+        # Also create a summary table with identity information
         summary_data = []
         for pos in positions:
-            pos_col = f'pos_{pos+1}'  # Column names are 1-indexed
             info = self.position_info[pos]
 
-            if pos_col not in self.combined_data.columns:
+            # Calculate unique sequence counts ACROSS ALL SUBSTRATES (no duplication)
+            # Extract AA from aligned_seq at position pos (0-indexed)
+            unique_aa_counts = {}
+            aa_identity_stats = {}
+            processed_fasta_ids = set()  # Track which sequences we've already counted
+
+            for substrate, df in self.substrate_data.items():
+                unique_df = df.drop_duplicates(subset='fasta_id')
+
+                # Extract amino acid at position pos from aligned_seq
+                for idx, row in unique_df.iterrows():
+                    fasta_id = row['fasta_id']
+
+                    # Skip if we've already counted this sequence from another substrate
+                    if fasta_id in processed_fasta_ids:
+                        continue
+
+                    processed_fasta_ids.add(fasta_id)
+
+                    seq = row['aligned_seq']
+                    # pos is 0-indexed PDB position, need to convert to alignment position
+                    pdb_residue = pos + 1
+                    if pdb_residue in self.pdb_to_aln:
+                        aln_pos = self.pdb_to_aln[pdb_residue]
+                        if aln_pos < len(seq):
+                            aa = seq[aln_pos]
+                            if aa != '-':  # Skip gaps
+                                if aa not in unique_aa_counts:
+                                    unique_aa_counts[aa] = 0
+                                unique_aa_counts[aa] += 1
+
+            # Calculate identity for each AA group (using all substrates)
+            for aa in unique_aa_counts.keys():
+                # Get all unique sequences with this AA at this position
+                aa_sequences = []
+                seen_sequences = set()
+
+                for substrate, df in self.substrate_data.items():
+                    unique_df = df.drop_duplicates(subset='fasta_id')
+                    for idx, row in unique_df.iterrows():
+                        fasta_id = row['fasta_id']
+                        if fasta_id not in seen_sequences:
+                            seq = row['aligned_seq']
+                            # pos is 0-indexed PDB position, convert to alignment position
+                            pdb_residue = pos + 1
+                            if pdb_residue in self.pdb_to_aln:
+                                aln_pos = self.pdb_to_aln[pdb_residue]
+                                if aln_pos < len(seq) and seq[aln_pos] == aa:
+                                    aa_sequences.append(seq)
+                                    seen_sequences.add(fasta_id)
+
+                if len(aa_sequences) >= 2:
+                    identity_info = calculate_average_pairwise_identity(aa_sequences)
+                    aa_identity_stats[aa] = identity_info['mean_identity']
+                elif len(aa_sequences) == 1:
+                    aa_identity_stats[aa] = 100.0
+
+            if len(unique_aa_counts) == 0:
                 continue
 
-            aa_counts = self.combined_data[pos_col].value_counts()
+            aa_counts_series = pd.Series(unique_aa_counts)
+            n_total_unique = aa_counts_series.sum()
+            n_unique_aa = len(aa_counts_series)
+            n_singleton = (aa_counts_series == 1).sum()
+            n_usable = (aa_counts_series >= 5).sum()
+            max_n = aa_counts_series.max() if len(aa_counts_series) > 0 else 0
 
-            n_total = len(self.combined_data[pos_col].dropna())
-            n_unique_aa = len(aa_counts)
-            n_singleton = (aa_counts == 1).sum()
-            n_usable = (aa_counts >= 5).sum()
-            max_n = aa_counts.max() if len(aa_counts) > 0 else 0
+            # Average identity across all AA groups
+            avg_identity = np.mean(list(aa_identity_stats.values())) if aa_identity_stats else 0.0
 
             summary_data.append({
                 'position': pos + 1,
                 'label': info['label'],
                 'site': info['site'],
                 'window': info['window'],
-                'total_seqs': n_total,
+                'total_unique_seqs': n_total_unique,
                 'unique_AAs': n_unique_aa,
                 'n=1 (excluded)': n_singleton,
-                'n≥5 (usable)': n_usable,
-                'max_n': max_n
+                'n>=5 (usable)': n_usable,
+                'max_n': max_n,
+                'avg_identity_%': round(avg_identity, 1)
             })
 
         summary_df = pd.DataFrame(summary_data)

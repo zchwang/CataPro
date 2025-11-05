@@ -212,6 +212,12 @@ def main():
     analyzer.substrate_data = substrate_dfs
     analyzer.substrates = list(substrate_dfs.keys())
 
+    # 8b. Set reference sequence for PDB→alignment mapping
+    print("\n8b. PDB → Alignment 위치 매핑...")
+    # Get reference sequence (first sequence in alignment)
+    reference_seq = alignment_matched.iloc[0]['aligned_seq']
+    analyzer.set_reference_sequence(reference_seq)
+
     # Extract position data
     print("\n9. Position 데이터 추출...")
     analyzer.extract_position_data(aligned_seq_col='aligned_seq')
@@ -236,28 +242,29 @@ def main():
         min_delta=0.1
     )
 
-    # 12. Show results
+    # 12. Show results for ALL substrates
     print("\n" + "="*80)
-    print("주요 결과")
+    print("주요 결과 (기질별)")
     print("="*80)
 
-    # Top effects for NADplus
-    if 'NADplus' in aa_effects['substrate'].values:
-        print("\nNADplus에 대한 log(kcat/Km) 상위 10 positions:")
+    # Show top effects for EACH substrate
+    for substrate in analyzer.substrates:
+        print(f"\n{'='*80}")
+        print(f"{substrate}에 대한 log(kcat/Km) 상위 5 positions:")
         print("-"*80)
 
-        nadplus_kcat_km = aa_effects[
-            (aa_effects['substrate'] == 'NADplus') &
+        substrate_kcat_km = aa_effects[
+            (aa_effects['substrate'] == substrate) &
             (aa_effects['parameter'] == 'log_kcat_Km') &
             (aa_effects['significant'])
-        ].nlargest(10, 'delta')
+        ].nlargest(5, 'delta')
 
-        if len(nadplus_kcat_km) > 0:
-            for i, (_, row) in enumerate(nadplus_kcat_km.iterrows(), 1):
+        if len(substrate_kcat_km) > 0:
+            for i, (_, row) in enumerate(substrate_kcat_km.iterrows(), 1):
                 print(f"\n{i}. Position {row['position']} ({row['label']}):")
-                print(f"   최고: {row['best_aa']} (평균={row['best_mean']:.3f}, n={row['best_count']}, unique_seqs={row['best_unique_seqs']})")
+                print(f"   최고: {row['best_aa']} (평균={row['best_mean']:.3f}, unique_seqs={row['best_unique_seqs']})")
                 print(f"        서열 다양성: {row['best_seq_identity_mean']:.1f}% identity (range: {row['best_seq_identity_min']:.1f}-{row['best_seq_identity_max']:.1f}%)")
-                print(f"   최저: {row['worst_aa']} (평균={row['worst_mean']:.3f}, n={row['worst_count']}, unique_seqs={row['worst_unique_seqs']})")
+                print(f"   최저: {row['worst_aa']} (평균={row['worst_mean']:.3f}, unique_seqs={row['worst_unique_seqs']})")
                 print(f"        서열 다양성: {row['worst_seq_identity_mean']:.1f}% identity (range: {row['worst_seq_identity_min']:.1f}-{row['worst_seq_identity_max']:.1f}%)")
                 print(f"   차이: {row['delta']:.3f} (p={row['p_value']:.4f})")
         else:
@@ -274,19 +281,32 @@ def main():
             print(f"   서로 다른 선호: {row['n_different_preferences']}개")
             print(f"   최대 효과 차이: {row['max_delta']:.3f}")
 
-    # 13. Generate outputs
+    # 13. Create output directory for this run
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"./analysis_output_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"\n출력 폴더 생성: {output_dir}")
+
+    # 14. Generate outputs
     print("\n" + "="*80)
     print("결과 저장 중...")
     print("="*80)
 
-    report_file = analyzer.generate_report()
-    analyzer.plot_amino_acid_effects()
+    # Generate Excel report with active site residues
+    excel_file = analyzer.generate_excel_report(output_dir=output_dir)
 
-    # 14. Plot sample sizes by position
+    # Generate text report
+    report_file = analyzer.generate_report(output_dir=output_dir)
+
+    # Generate plots
+    analyzer.plot_amino_acid_effects(output_dir=output_dir)
+
+    # 15. Plot sample sizes by position
     print("\n" + "="*80)
     print("Position별 아미노산 분포 시각화...")
     print("="*80)
-    sample_size_summary = analyzer.plot_sample_sizes_by_position()
+    sample_size_summary = analyzer.plot_sample_sizes_by_position(output_dir=output_dir)
     print("\nSample size summary:")
     print(sample_size_summary.to_string())
 
@@ -315,11 +335,17 @@ def main():
     print("\n" + "="*80)
     print("분석 완료!")
     print("="*80)
+    print(f"\n모든 결과가 저장되었습니다: {output_dir}/")
     print(f"\n생성된 파일:")
-    print(f"  - {report_file}")
+    print(f"  - active_site_residues_*.xlsx (Excel report - 4개 시트)")
+    print(f"      * Sheet 1: Active_Site_Residues (각 서열의 active site amino acids)")
+    print(f"      * Sheet 2: Position_Information (position별 Best/Worst AA)")
+    print(f"      * Sheet 3: AA_Effects (전체 아미노산 효과 데이터)")
+    print(f"      * Sheet 4: Substrate_Specific (기질 특이적 잔기)")
+    print(f"  - sequence_comparison_report_*.txt")
     print(f"  - aa_effects_*.png (parameter별)")
-    print(f"  - substrate_comparison_top_positions_*.png")
-    print(f"  - sample_sizes_by_position_*.png (각 position별 n수 분포)")
+    print(f"  - [substrate]_all_positions_*.png (기질별 violin plots)")
+    print(f"  - [substrate]_sample_sizes_by_position_*.png (기질별 sample size 분포)")
     print(f"  - sample_size_summary_*.csv (n수 요약 테이블)")
 
 
