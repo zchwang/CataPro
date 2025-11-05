@@ -1,54 +1,54 @@
-# Mutation Analysis
+# 돌연변이 분석
 
-This directory contains scripts and results for testing the hypothesis that amino acid analysis-suggested mutations improve enzyme performance.
+이 디렉토리는 아미노산 분석에서 제안된 돌연변이가 효소 성능을 향상시킨다는 가설을 검증하는 스크립트와 결과를 포함합니다.
 
-## Key Scripts
+## 주요 스크립트
 
 ### `create_mutant_sequences.py`
-Creates mutant enzyme sequences by applying suggested mutations from AA analysis:
-- Loads original sequences from `reported_UDHs_complete.fasta`
-- Loads mutation suggestions from `reported_udh_analysis.xlsx`
-- Creates three mutation sets: top5, top10, all
-- Generates sequences for 14 enzymes × 5 substrates × 4 types (WT + 3 mutant sets)
+AA 분석에서 제안된 돌연변이를 적용하여 돌연변이 효소 서열을 생성:
+- `reported_UDHs_complete.fasta`에서 원본 서열 로드
+- `reported_udh_analysis.xlsx`에서 돌연변이 제안 로드
+- 세 가지 돌연변이 세트 생성: top5, top10, all
+- 14개 효소 × 5개 기질 × 4개 타입 (야생형 + 3개 돌연변이 세트) 서열 생성
 
 ### `analyze_mutant_impact.py`
-Analyzes the performance difference between wild-type and mutant enzymes:
-- Compares CataPro predictions for wild-type vs mutants
-- Calculates Δkcat/Km for each mutant
-- Generates statistical summaries and visualizations
+야생형과 돌연변이 효소 간의 성능 차이 분석:
+- 야생형 대 돌연변이에 대한 CataPro 예측 비교
+- 각 돌연변이에 대한 Δkcat/Km 계산
+- 통계 요약 및 시각화 생성
 
-## Data Files
+## 데이터 파일
 
-### Input Files
-- `mutant_sequences_catapro_input.csv` - 280 sequences for CataPro prediction (70 WT + 210 mutants)
-- `mutant_sequences_metadata.csv` - Metadata tracking enzyme, substrate, mutation type
+### 입력 파일
+- `mutant_sequences_catapro_input.csv` - CataPro 예측을 위한 280개 서열 (70개 WT + 210개 돌연변이)
+- `mutant_sequences_metadata.csv` - 효소, 기질, 돌연변이 타입을 추적하는 메타데이터
 
-### Output Files
-- `mutant_sequences_predictions.csv` - CataPro predictions for all 280 sequences
-- `mutant_sequences_summary.csv` - Summary of mutations applied per enzyme
-- `mutant_vs_wildtype_comparison.csv` - Detailed comparison (210 mutant-WT pairs)
+### 출력 파일
+- `mutant_sequences_predictions.csv` - 280개 서열 모두에 대한 CataPro 예측
+- `mutant_sequences_summary.csv` - 효소별 적용된 돌연변이 요약
+- `mutant_vs_wildtype_comparison.csv` - 상세 비교 (210개 돌연변이-WT 쌍)
 
-### Visualizations
-- `mutant_impact_analysis.png` - 4-panel visualization showing:
-  - Distribution of performance changes
-  - Wild-type vs Mutant scatter plot
-  - Average change by enzyme
-  - Performance change vs number of mutations
+### 시각화
+- `mutant_impact_analysis.png` - 4개 패널 시각화:
+  - 성능 변화 분포
+  - 야생형 대 돌연변이 산점도
+  - 효소별 평균 변화
+  - 돌연변이 수 대 성능 변화
 
-## Key Findings
+## 주요 발견사항
 
-**CRITICAL RESULT**: Mutations suggested by amino acid analysis actually **DEGRADE** enzyme performance in 79% of cases.
+**핵심 결과**: 아미노산 분석에서 제안된 돌연변이가 실제로 79%의 경우에 효소 성능을 **저하**시킴.
 
-### Overall Performance Changes
-- **Top5 mutations**: Average Δkcat/Km = -0.0476 (71.4% degraded)
-- **Top10 mutations**: Average Δkcat/Km = -0.1032 (71.4% degraded)
-- **All mutations**: Average Δkcat/Km = -0.6143 (94.3% degraded)
+### 전체 성능 변화
+- **Top5 돌연변이**: 평균 Δkcat/Km = -0.0476 (71.4% 저하)
+- **Top10 돌연변이**: 평균 Δkcat/Km = -0.1032 (71.4% 저하)
+- **모든 돌연변이**: 평균 Δkcat/Km = -0.6143 (94.3% 저하)
 
-### Per-Enzyme Results
-- **m2Udh** (CataPro #1): All mutations degraded performance (-0.01 to -0.24)
-- **AtUdh** (AA #1): All mutations degraded performance (-0.11 to -0.29)
-- **SvUdh**: Only enzyme with slight improvement from "all" mutations (+0.03)
+### 효소별 결과
+- **m2Udh** (CataPro #1): 모든 돌연변이가 성능 저하 (-0.01 ~ -0.24)
+- **AtUdh** (AA #1): 모든 돌연변이가 성능 저하 (-0.11 ~ -0.29)
+- **SvUdh**: "all" 돌연변이에서 약간의 향상을 보인 유일한 효소 (+0.03)
 
-## Conclusion
+## 결론
 
-The empirical validation confirms the negative correlation hypothesis: applying mutations to reach "optimal" amino acids as identified by statistical analysis actually decreases enzyme performance on average.
+실증적 검증은 음의 상관관계 가설을 확인합니다: 통계 분석으로 식별된 "최적" 아미노산에 도달하기 위해 돌연변이를 적용하면 평균적으로 효소 성능이 실제로 감소합니다.

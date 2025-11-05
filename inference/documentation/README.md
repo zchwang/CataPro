@@ -1,89 +1,89 @@
-# Documentation
+# 문서
 
-This directory contains documentation and guides for the UDH enzyme analysis project.
+이 디렉토리는 UDH 효소 분석 프로젝트에 대한 문서 및 가이드를 포함합니다.
 
-## Files
+## 파일
 
-### Analysis Summaries
+### 분석 요약
 
-#### `ANALYSIS_COMPARISON_SUMMARY.md` (English)
-Comprehensive summary of the mutation analysis validation study:
-- Background on amino acid analysis approach
-- CataPro predictions methodology
-- Correlation analysis results
-- Mutation validation results
-- Critical findings and conclusions
+#### `ANALYSIS_COMPARISON_SUMMARY.md` (영어)
+돌연변이 분석 검증 연구의 종합 요약:
+- 아미노산 분석 접근법 배경
+- CataPro 예측 방법론
+- 상관관계 분석 결과
+- 돌연변이 검증 결과
+- 핵심 발견사항 및 결론
 
-#### `분석_비교_요약_한글.md` (Korean)
-Korean translation of the analysis comparison summary for local team collaboration.
+#### `분석_비교_요약_한글.md` (한글)
+현지 팀 협업을 위한 분석 비교 요약의 한글 번역.
 
-### Methodology Guides
+### 방법론 가이드
 
 #### `BINDING_SITE_ANALYSIS_GUIDE.md`
-Guide for binding site mutation analysis:
-- Methodology for identifying key residues
-- Statistical approaches for optimal amino acid identification
-- Mutation suggestion algorithm
-- Scoring system for enzyme engineering
+결합 부위 돌연변이 분석 가이드:
+- 주요 잔기 식별 방법론
+- 최적 아미노산 식별을 위한 통계적 접근법
+- 돌연변이 제안 알고리즘
+- 효소 엔지니어링을 위한 점수 시스템
 
 #### `SEQUENCE_COMPARISON_GUIDE.md`
-Guide for sequence comparison analysis:
-- Multiple sequence alignment processing
-- PDB position mapping methodology
-- Active site residue identification
-- Comparison across enzyme variants
+서열 비교 분석 가이드:
+- 다중 서열 정렬 처리
+- PDB 위치 매핑 방법론
+- 활성 부위 잔기 식별
+- 효소 변이체 간 비교
 
 #### `POSITION_SELECTION_SUMMARY.md`
-Summary of position selection criteria:
-- Active site positions analyzed
-- Rationale for position selection
-- Structural basis for each position
-- Position importance ranking
+위치 선택 기준 요약:
+- 분석된 활성 부위 위치
+- 위치 선택의 근거
+- 각 위치의 구조적 기반
+- 위치 중요도 순위
 
 #### `SETUP_GUIDE.md`
-Setup instructions for the analysis pipeline:
-- Environment setup
-- Required dependencies
-- Data preparation steps
-- Running the analysis pipeline
+분석 파이프라인 설정 지침:
+- 환경 설정
+- 필수 종속성
+- 데이터 준비 단계
+- 분석 파이프라인 실행
 
-## Key Concepts
+## 주요 개념
 
-### Amino Acid Analysis
-Statistical approach to identify "optimal" amino acids at active site positions:
-1. Analyze 1181 UDH sequences from multiple sequence alignment
-2. Identify most common amino acids at each position
-3. Score enzymes based on matches to optimal residues
-4. Suggest mutations to improve enzyme performance
+### 아미노산 분석
+활성 부위 위치에서 "최적" 아미노산을 식별하는 통계적 접근법:
+1. 다중 서열 정렬의 1181개 UDH 서열 분석
+2. 각 위치에서 가장 흔한 아미노산 식별
+3. 최적 잔기와의 일치도를 기반으로 효소 점수 매기기
+4. 효소 성능 향상을 위한 돌연변이 제안
 
-### CataPro Predictions
-Machine learning approach using protein and molecule language models:
-- Predicts kcat, Km, and kcat/Km from sequence and substrate
-- Trained on experimental enzyme kinetics data
-- Uses ProtT5 for protein encoding and MolT5 for substrate encoding
+### CataPro 예측
+단백질 및 분자 언어 모델을 사용한 머신러닝 접근법:
+- 서열과 기질에서 kcat, Km, kcat/Km 예측
+- 실험적 효소 동역학 데이터로 훈련
+- 단백질 인코딩에 ProtT5, 기질 인코딩에 MolT5 사용
 
-### Critical Discovery
+### 핵심 발견
 
-**NEGATIVE CORRELATION FOUND**: The amino acid analysis approach produces rankings that are inversely correlated (r = -0.573, p=0.032) with CataPro predictions.
+**음의 상관관계 발견**: 아미노산 분석 접근법은 CataPro 예측과 역상관 관계 (r = -0.573, p=0.032)에 있는 순위를 생성합니다.
 
-**EMPIRICAL VALIDATION**: Creating actual mutant sequences with suggested mutations and testing them confirmed that 79% of mutants show decreased performance compared to wild-type.
+**실증적 검증**: 제안된 돌연변이로 실제 돌연변이 서열을 생성하고 테스트한 결과, 79%의 돌연변이가 야생형에 비해 성능이 감소한 것으로 확인되었습니다.
 
-### Implications
+### 함의
 
-1. **Statistical analysis limitations**: Most common ≠ optimal for performance
-2. **Evolutionary context matters**: High-performing enzymes may have unique residues
-3. **Machine learning advantage**: CataPro captures complex sequence-function relationships
-4. **Engineering strategy**: Avoid naive amino acid frequency-based approaches
+1. **통계 분석의 한계**: 가장 흔함 ≠ 성능 최적
+2. **진화적 맥락이 중요**: 고성능 효소는 독특한 잔기를 가질 수 있음
+3. **머신러닝의 장점**: CataPro는 복잡한 서열-기능 관계를 포착
+4. **엔지니어링 전략**: 순진한 아미노산 빈도 기반 접근법 피하기
 
-## Usage
+## 사용법
 
-These documents provide context and methodology for understanding the analysis results in:
-- `../reported_udh_analysis/` - Initial enzyme analysis
-- `../correlation_analysis/` - Correlation discovery
-- `../mutation_analysis/` - Empirical validation
+이 문서들은 다음의 분석 결과를 이해하기 위한 맥락과 방법론을 제공합니다:
+- `../reported_udh_analysis/` - 초기 효소 분석
+- `../correlation_analysis/` - 상관관계 발견
+- `../mutation_analysis/` - 실증적 검증
 
-## References
+## 참고문헌
 
-- BsUdh structure (PDB: 2F6Y) used as reference for active site positions
-- Multiple sequence alignment of 1181 UDH sequences
-- 14 experimentally characterized UDH enzymes for validation
+- 활성 부위 위치 참조로 사용된 BsUdh 구조 (PDB: 2F6Y)
+- 1181개 UDH 서열의 다중 서열 정렬
+- 검증을 위한 14개의 실험적으로 특성화된 UDH 효소
