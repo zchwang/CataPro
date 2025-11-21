@@ -50,8 +50,8 @@ class ActivityModel(nn.Module):
         super(ActivityModel, self).__init__()
         self.alpha = alpha
 
-        self.kcat_model = KcatModel().to(device)
-        self.Km_model = KmModel().to(device)
+        self.kcat_model = KcatModel(device=device).to(device)
+        self.Km_model = KmModel(device=device).to(device)
 
         self.prot_norm = nn.BatchNorm1d(1024).to(device)
         self.molt5_norm = nn.BatchNorm1d(768).to(device)
