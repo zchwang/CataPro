@@ -90,11 +90,11 @@ if __name__ == "__main__":
     pred_act_list = []
     for fold in range(10):    
         kcat_model = KcatModel(device=device)
-        kcat_model.load_state_dict(th.load(f"{kcat_model_dpath}/{fold}_bestmodel.pth", map_location=device))
+        kcat_model.load_state_dict(th.load(f"{kcat_model_dpath}/{fold}_bestmodel.pth", map_location=device, weights_only=True))
         Km_model = KmModel(device=device)
-        Km_model.load_state_dict(th.load(f"{Km_model_dpath}/{fold}_bestmodel.pth", map_location=device))
+        Km_model.load_state_dict(th.load(f"{Km_model_dpath}/{fold}_bestmodel.pth", map_location=device, weights_only=True))
         act_model = ActivityModel(device=device)
-        act_model.load_state_dict(th.load(f"{act_model_dpath}/{fold}_bestmodel.pth", map_location=device))
+        act_model.load_state_dict(th.load(f"{act_model_dpath}/{fold}_bestmodel.pth", map_location=device, weights_only=True))
 
         pred_score = inference(kcat_model, Km_model, act_model, dataloader, device)
         pred_kcat_list.append(pred_score[:, :1])
